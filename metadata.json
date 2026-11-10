@@ -1,0 +1,6 @@
+{
+  "name": "APIC Cleaning Validation Suite & Global ADE/PDE Database",
+  "description": "Piattaforma avanzata per la Cleaning Validation secondo Guida APIC / EMA con Database Globale Precaricato di API e Intermedi da produttori farmaceutici leader (Teva, Lonza, Pfizer, Novartis, Olon, Sanofi, Cambrex, Cipla, ecc.).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
