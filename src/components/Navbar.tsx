@@ -2,8 +2,8 @@ import React from 'react';
 import { ShieldCheck, Database, Calculator, Table, Activity, PlusCircle, Sparkles } from 'lucide-react';
 
 interface NavbarProps {
-  activeTab: 'database' | 'calculator' | 'matrix' | 'pde-derivation';
-  setActiveTab: (tab: 'database' | 'calculator' | 'matrix' | 'pde-derivation') => void;
+  activeTab: 'matrix' | 'calculator' | 'pde-derivation';
+  setActiveTab: (tab: 'matrix' | 'calculator' | 'pde-derivation') => void;
   onOpenAddModal: () => void;
   onOpenImportExport: () => void;
   totalCompoundsCount: number;
@@ -72,54 +72,72 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        {/* Navigation Tabs */}
+        {/* Navigation Tabs - Distinctive Environment Colors */}
         <div className="flex space-x-1 sm:space-x-2 border-t border-slate-800/70 pt-1 overflow-x-auto no-scrollbar">
+          {/* TAB 1: Matrice Impianto - Purple / Indigo Environment */}
           <button
             onClick={() => setActiveTab('matrix')}
-            className={`flex items-center space-x-2 px-3.5 py-2.5 text-xs sm:text-sm font-medium rounded-t-lg transition-all border-b-2 whitespace-nowrap ${
+            className={`flex items-center space-x-2 px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-t-xl transition-all border-b-2 whitespace-nowrap ${
               activeTab === 'matrix'
-                ? 'border-purple-400 text-purple-300 bg-slate-800/60 shadow-sm'
-                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
+                ? 'border-purple-400 text-purple-200 bg-gradient-to-t from-purple-950/80 to-slate-900/90 shadow-md shadow-purple-900/30 font-bold'
+                : 'border-transparent text-slate-400 hover:text-purple-300 hover:bg-slate-800/40'
             }`}
           >
-            <Table className="w-4 h-4 text-purple-400" />
-            <span>Matrice Impianto (Costruttore QA)</span>
+            <Table className={`w-4 h-4 ${activeTab === 'matrix' ? 'text-purple-300 animate-pulse' : 'text-purple-400/70'}`} />
+            <span className="flex items-center space-x-1.5">
+              <span>Scheda 1: Matrice Impianto &amp; Incastro Prodotti</span>
+              <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold border ${
+                activeTab === 'matrix'
+                  ? 'bg-purple-500/30 text-purple-200 border-purple-400/50'
+                  : 'bg-slate-800 text-purple-400 border-purple-500/20'
+              }`}>
+                Max 10 Matrici
+              </span>
+            </span>
           </button>
 
+          {/* TAB 2: Calcolatore MACO - Emerald / Mint Environment */}
           <button
             onClick={() => setActiveTab('calculator')}
-            className={`flex items-center space-x-2 px-3.5 py-2.5 text-xs sm:text-sm font-medium rounded-t-lg transition-all border-b-2 whitespace-nowrap ${
+            className={`flex items-center space-x-2 px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-t-xl transition-all border-b-2 whitespace-nowrap ${
               activeTab === 'calculator'
-                ? 'border-teal-400 text-teal-300 bg-slate-800/60 shadow-sm'
-                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
+                ? 'border-emerald-400 text-emerald-200 bg-gradient-to-t from-emerald-950/80 to-slate-900/90 shadow-md shadow-emerald-900/30 font-bold'
+                : 'border-transparent text-slate-400 hover:text-emerald-300 hover:bg-slate-800/40'
             }`}
           >
-            <Calculator className="w-4 h-4 text-blue-400" />
-            <span>Calcolatore APIC MACO</span>
+            <Calculator className={`w-4 h-4 ${activeTab === 'calculator' ? 'text-emerald-300 animate-pulse' : 'text-emerald-400/70'}`} />
+            <span className="flex items-center space-x-1.5">
+              <span>Scheda 2: Calcolatore MACO (Par. 4.0 APIC)</span>
+              <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold border ${
+                activeTab === 'calculator'
+                  ? 'bg-emerald-500/30 text-emerald-200 border-emerald-400/50'
+                  : 'bg-slate-800 text-emerald-400 border-emerald-500/20'
+              }`}>
+                Criteri di Accettazione
+              </span>
+            </span>
           </button>
 
-          <button
-            onClick={() => setActiveTab('database')}
-            className={`flex items-center space-x-2 px-3.5 py-2.5 text-xs sm:text-sm font-medium rounded-t-lg transition-all border-b-2 whitespace-nowrap ${
-              activeTab === 'database'
-                ? 'border-teal-400 text-teal-300 bg-slate-800/60 shadow-sm'
-                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
-            }`}
-          >
-            <Database className="w-4 h-4 text-teal-400" />
-            <span>Database Globale di Supporto</span>
-          </button>
-
+          {/* TAB 3: Derivazione Tossicologica - Amber / Gold Environment */}
           <button
             onClick={() => setActiveTab('pde-derivation')}
-            className={`flex items-center space-x-2 px-3.5 py-2.5 text-xs sm:text-sm font-medium rounded-t-lg transition-all border-b-2 whitespace-nowrap ${
+            className={`flex items-center space-x-2 px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-t-xl transition-all border-b-2 whitespace-nowrap ${
               activeTab === 'pde-derivation'
-                ? 'border-teal-400 text-teal-300 bg-slate-800/60 shadow-sm'
-                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
+                ? 'border-amber-400 text-amber-200 bg-gradient-to-t from-amber-950/80 to-slate-900/90 shadow-md shadow-amber-900/30 font-bold'
+                : 'border-transparent text-slate-400 hover:text-amber-300 hover:bg-slate-800/40'
             }`}
           >
-            <Activity className="w-4 h-4 text-amber-400" />
-            <span>Derivazione PDE (NOAEL & F1-F5)</span>
+            <Activity className={`w-4 h-4 ${activeTab === 'pde-derivation' ? 'text-amber-300 animate-pulse' : 'text-amber-400/70'}`} />
+            <span className="flex items-center space-x-1.5">
+              <span>Derivazione Tossicologica ADE/PDE</span>
+              <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold border ${
+                activeTab === 'pde-derivation'
+                  ? 'bg-amber-500/30 text-amber-200 border-amber-400/50'
+                  : 'bg-slate-800 text-amber-400 border-amber-500/20'
+              }`}>
+                Fattori F1-F5
+              </span>
+            </span>
           </button>
         </div>
       </div>

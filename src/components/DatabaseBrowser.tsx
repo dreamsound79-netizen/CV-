@@ -286,20 +286,24 @@ export const DatabaseBrowser: React.FC<DatabaseBrowserProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Top Banner & Context */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 p-6 rounded-2xl border border-slate-700/80 shadow-xl">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Top Banner & Context: Cyan/Sky Blue Environment Styling */}
+      <div className="bg-gradient-to-r from-cyan-950/40 via-slate-900 to-sky-950/30 p-6 rounded-2xl border-2 border-cyan-500/40 shadow-2xl shadow-cyan-950/30 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-cyan-600/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
           <div>
-            <div className="flex items-center space-x-2">
-              <span className="px-2.5 py-0.5 rounded text-xs font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">
-                Guida APIC / CEFIC Aggiornata
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-3 py-1 rounded-full text-xs font-black bg-cyan-500 text-slate-950 shadow-md shadow-cyan-500/30 uppercase tracking-wider flex items-center space-x-1.5">
+                <span className="w-2 h-2 rounded-full bg-slate-950 animate-pulse"></span>
+                <span>AMBIENTE: DATABASE GLOBALE DI SUPPORTO &amp; CATALOGHI API</span>
               </span>
-              <span className="text-xs text-slate-400">Repertorio Farmaceutico Multicompound & Registro CAS</span>
+              <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                13 Produttori Mondiali • Indicizzazione CAS Modulo-10
+              </span>
             </div>
-            <h1 className="text-2xl font-black text-white tracking-tight mt-1">
-              Database Globale ADE/PDE & Indicizzazione CAS
+            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight mt-2">
+              Database Globale ADE/PDE &amp; Indicizzazione CAS
             </h1>
-            <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-3xl">
+            <p className="text-xs sm:text-sm text-slate-300 mt-1.5 max-w-3xl leading-relaxed">
               Repertorio completo coprente i cataloghi dei primari produttori farmaceutici globali
               (Teva, Lonza, Pfizer, Novartis, Axplora, Dipharma, Curia, Olon, Sanofi, Cambrex, Cipla, Procos, Aurobindo)
               con <strong>indicizzazione analitica dei codici CAS</strong> per API e intermedi di sintesi.

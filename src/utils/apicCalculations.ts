@@ -6,6 +6,15 @@ import {
   CasIndexEntry,
   CalculationAuditStep,
   CustomFormulaConfig,
+  HardestToCleanCategory,
+  SolubilityGroup,
+  AdePdeGroup,
+  DoseGroup,
+  MatrixProductItem,
+  ApicChapter4CalculationInput,
+  ApicChapter4CalculationResult,
+  EquipmentSegmentSwabItem,
+  RinseVerificationSample,
 } from '../types/apic';
 
 /**
@@ -783,9 +792,231 @@ export function cleanabilityScore(rating: CleanabilityRating): number {
   }
 }
 
+export function getAdePdeGroup(pdeUgDay: number): AdePdeGroup {
+  if (pdeUgDay > 500) return 1;
+  if (pdeUgDay >= 100) return 2;
+  if (pdeUgDay >= 10) return 3;
+  if (pdeUgDay >= 1) return 4;
+  return 5;
+}
+
+export function getTherapeuticDoseGroup(minDoseMg: number): DoseGroup {
+  if (minDoseMg > 1000) return 1;
+  if (minDoseMg >= 100) return 2;
+  if (minDoseMg >= 10) return 3;
+  if (minDoseMg >= 1) return 4;
+  return 5;
+}
+
+export function mapSolubilityTextToGroup(solubilityText: string): SolubilityGroup {
+  const lower = (solubilityText || '').toLowerCase();
+  if (lower.includes('freely') || lower.includes('very soluble') || lower.includes('molto solubile')) {
+    return 1;
+  }
+  if (
+    lower.includes('sparingly') ||
+    lower.includes('moderately') ||
+    lower.includes('poco solubile') ||
+    (lower.includes('soluble') && !lower.includes('slightly') && !lower.includes('insoluble'))
+  ) {
+    return 2;
+  }
+  return 3;
+}
+
+export function mapCleanabilityTextToCategory(cleanText: string): HardestToCleanCategory {
+  const lower = (cleanText || '').toLowerCase();
+  if (lower.includes('easy') || lower.includes('facile') || lower.includes('water')) {
+    return 1;
+  }
+  if (
+    lower.includes('difficult') ||
+    lower.includes('difficile') ||
+    lower.includes('reflux') ||
+    lower.includes('boil') ||
+    lower.includes('hot alkaline')
+  ) {
+    return 3;
+  }
+  return 2;
+}
+
 /**
- * Ranks compounds in a matrix to identify the overall Worst-Case candidate
- * for cleaning validation matrixing approach as per APIC Guide Section 7.
+ * Evaluates all combinations between products in an APIC facility matrix (A -> B transitions).
+ * Determines the worst case (più sfavorevole) to validate based on APIC Chapter 7 criteria:
+ * a) Hardest to clean (Category 1-3)
+ * b) Solubility in cleaning solvent (Group 1-3)
+ * c) ADE / PDE concept (Group 1-5)
+ * d) Smallest therapeutic dose (Group 1-5)
+ */
+export interface MatrixCombinationResult {
+  fromProduct: MatrixProductItem;
+  toProduct: MatrixProductItem;
+  macoPdeMg: number;
+  macoDoseMg: number;
+  maco10PpmMg: number;
+  macoSelectedMg: number;
+  governingCriteria: 'PDE / ADE' | 'Dose 0.001' | '10 ppm';
+  swabLimitUgPerSwab: number;
+  rinseLimitMgL: number;
+  severityScore: number;
+  isWorstCase: boolean;
+  scientificRationale: string;
+}
+
+export function evaluateAllMatrixCombinations(
+  products: MatrixProductItem[],
+  trainParams: {
+    sharedSurfaceAreaM2: number;
+    swabAreaCm2: number;
+    swabRecoveryPercent: number;
+    rinseVolumeLiters: number;
+  }
+): {
+  combinations: MatrixCombinationResult[];
+  worstCaseCombination: MatrixCombinationResult | null;
+  worstResidueProduct: MatrixProductItem | null;
+  mostVulnerableRecipient: MatrixProductItem | null;
+} {
+  if (!products || products.length < 2) {
+    return {
+      combinations: [],
+      worstCaseCombination: null,
+      worstResidueProduct: products && products.length === 1 ? products[0] : null,
+      mostVulnerableRecipient: null,
+    };
+  }
+
+  const { sharedSurfaceAreaM2, swabAreaCm2, swabRecoveryPercent, rinseVolumeLiters } = trainParams;
+  const recoveryFactor = (swabRecoveryPercent || 85) / 100;
+  const totalSharedAreaCm2 = (sharedSurfaceAreaM2 || 25) * 10000;
+
+  const combinations: MatrixCombinationResult[] = [];
+  let minMacoOverall = Infinity;
+  let maxSeverityScore = -Infinity;
+  let worstCombinationCandidate: MatrixCombinationResult | null = null;
+
+  // Track worst single residue (hardest to clean & most toxic/potent)
+  let worstResidueProduct: MatrixProductItem | null = null;
+  let highestResidueScore = -Infinity;
+
+  for (const prod of products) {
+    // Residue difficulty score:
+    // cleanabilityCategory (1-3, weight 3) + solubilityGroup (1-3, weight 2.5) + pdeGroup (1-5, weight 4) + doseGroup (1-5, weight 2)
+    const residueScore =
+      prod.cleanabilityCategory * 3 +
+      prod.solubilityGroup * 2.5 +
+      prod.pdeGroup * 4 +
+      prod.doseGroup * 2;
+
+    if (residueScore > highestResidueScore) {
+      highestResidueScore = residueScore;
+      worstResidueProduct = prod;
+    }
+  }
+
+  // Track most vulnerable recipient (lowest MBS & highest MDD)
+  let mostVulnerableRecipient: MatrixProductItem | null = null;
+  let highestVulnerability = -Infinity;
+
+  for (const prod of products) {
+    const vuln = prod.minBatchSizeKg > 0 ? (prod.maxDailyDoseMg || 1) / prod.minBatchSizeKg : 0;
+    if (vuln > highestVulnerability) {
+      highestVulnerability = vuln;
+      mostVulnerableRecipient = prod;
+    }
+  }
+
+  // Evaluate every cross pair A -> B (where A != B)
+  for (const prodA of products) {
+    for (const prodB of products) {
+      if (prodA.id === prodB.id) continue;
+
+      const pdeMg = prodA.pdeMgDay > 0 ? prodA.pdeMgDay : prodA.pdeUgDay / 1000;
+      const macoPde = calculateMACOByPDE(pdeMg, prodB.minBatchSizeKg, prodB.maxDailyDoseMg);
+      const macoDose = calculateMACOByDose(
+        prodA.minDailyDoseMg,
+        prodB.minBatchSizeKg,
+        prodB.maxDailyDoseMg,
+        1000
+      );
+      const maco10Ppm = calculateMACOBy10Ppm(prodB.minBatchSizeKg);
+
+      // Governing MACO: APIC recommends taking the lowest valid value
+      const valid = [
+        { val: macoPde, name: 'PDE / ADE' as const },
+        { val: macoDose, name: 'Dose 0.001' as const },
+        { val: maco10Ppm, name: '10 ppm' as const },
+      ].filter((x) => x.val > 0);
+
+      valid.sort((a, b) => a.val - b.val);
+      const selected = valid[0] || { val: macoPde, name: 'PDE / ADE' as const };
+      const macoSelectedMg = selected.val;
+      const governingCriteria = selected.name;
+
+      // Surface, Swab and Rinse limits
+      const surfaceUgCm2 = totalSharedAreaCm2 > 0 ? (macoSelectedMg * 1000) / totalSharedAreaCm2 : 0;
+      const swabLimitUgPerSwab = Number((surfaceUgCm2 * swabAreaCm2 * recoveryFactor).toFixed(3));
+      const rinseLimitMgL = rinseVolumeLiters > 0 ? Number((macoSelectedMg / rinseVolumeLiters).toFixed(4)) : 0;
+
+      // APIC Worst-Case severity score for transition A -> B
+      // Lower MACO = higher severity. Harder to clean = higher severity.
+      // Score from 0 to 100
+      const macoFactor = macoSelectedMg > 0 ? Math.min(50, 500 / macoSelectedMg) : 50;
+      const cleanFactor = (prodA.cleanabilityCategory / 3) * 20;
+      const solFactor = (prodA.solubilityGroup / 3) * 15;
+      const pdeFactor = (prodA.pdeGroup / 5) * 15;
+      const severityScore = Number((macoFactor + cleanFactor + solFactor + pdeFactor).toFixed(1));
+
+      // Scientific rationale according to APIC Chapter 7
+      const rationaleParts: string[] = [];
+      if (prodA.cleanabilityCategory === 3) rationaleParts.push('Pulibilità Difficile (Cat 3)');
+      if (prodA.solubilityGroup === 3) rationaleParts.push('Scarsa Solubilità (USP Grp 3)');
+      if (prodA.pdeGroup >= 4) rationaleParts.push(`Alta Tossicità (PDE Grp ${prodA.pdeGroup})`);
+      if (selected.val === macoPde) rationaleParts.push(`Governato da limite HBEL tossicologico (${macoPde.toFixed(2)} mg)`);
+      else rationaleParts.push(`Governato da criterio dose (${macoDose.toFixed(2)} mg)`);
+
+      const combinationResult: MatrixCombinationResult = {
+        fromProduct: prodA,
+        toProduct: prodB,
+        macoPdeMg: macoPde,
+        macoDoseMg: macoDose,
+        maco10PpmMg: maco10Ppm,
+        macoSelectedMg,
+        governingCriteria,
+        swabLimitUgPerSwab,
+        rinseLimitMgL,
+        severityScore,
+        isWorstCase: false,
+        scientificRationale: rationaleParts.join(' • '),
+      };
+
+      combinations.push(combinationResult);
+
+      // Track most critical combination
+      // APIC Chapter 7: The worst-case is the one with highest cleaning challenge & lowest acceptance limit
+      if (macoSelectedMg < minMacoOverall || (macoSelectedMg === minMacoOverall && severityScore > maxSeverityScore)) {
+        minMacoOverall = macoSelectedMg;
+        maxSeverityScore = severityScore;
+        worstCombinationCandidate = combinationResult;
+      }
+    }
+  }
+
+  if (worstCombinationCandidate) {
+    worstCombinationCandidate.isWorstCase = true;
+  }
+
+  return {
+    combinations,
+    worstCaseCombination: worstCombinationCandidate,
+    worstResidueProduct,
+    mostVulnerableRecipient,
+  };
+}
+
+/**
+ * Calculates a worst-case risk score for a single compound (legacy compatibility).
  */
 export function calculateWorstCaseScore(compound: PharmaceuticalCompound): {
   score: number;
@@ -840,3 +1071,271 @@ export function calculateWorstCaseScore(compound: PharmaceuticalCompound): {
 
   return { score: compositeScore, rankReason: reason };
 }
+
+/**
+ * Executes comprehensive Cleaning Validation Acceptance Criteria calculations strictly according to
+ * APIC Guidance Chapter 4.0:
+ * - 4.1 Introduction & Visual limit check
+ * - 4.2.1 Health-Based Data (HBEL / ADE / PDE with Purging Factor PF & Safety Factor SF)
+ * - 4.2.2 General Limits (10 ppm, 100 ppm, custom MAXCONC ppm)
+ * - 4.2.3 Therapeutic Macromolecules & Peptides (1/1000th dose combined with 10 ppm)
+ * - 4.2.4 Swab Limits (Equation 4.2.5-I & Equation 4.2.5-II segmented carry over)
+ * - 4.2.5 Rinse Limits (Target value mg/L & Equation 5 carry over)
+ * - 4.2.6 Chemical production factor (5-10x for chemical synthesis vs 1x for physical finishing)
+ */
+export function executeApicChapter4Calculation(
+  input: ApicChapter4CalculationInput
+): ApicChapter4CalculationResult {
+  const {
+    hbelMgDay,
+    hbelSource,
+    nextMaterialMbsKg,
+    nextMaterialTddMg,
+    purgingFactor = 1,
+    safetyFactorHbel = 1,
+    generalLimitPpm = 10,
+    previousMaterialTddMg,
+    doseSafetyFactor = 1000,
+    isMacromoleculeOrPeptide = false,
+    chemicalProductionFactor = 1,
+    chemicalFactorJustification,
+    totalSurfaceAreaM2,
+    swabTemplateAreaCm2,
+    swabRecoveryRatePercent = 85,
+    rinseVolumeLiters,
+    visualCleanlinessThresholdUgCm2 = 4.0,
+    segments,
+    rinseVerification,
+  } = input;
+
+  const mbsMg = (nextMaterialMbsKg || 1) * 1_000_000; // MBS in mg
+  const recoveryFraction = (swabRecoveryRatePercent || 85) / 100;
+  const totalSurfaceAreaDm2 = (totalSurfaceAreaM2 || 1) * 100; // 1 m² = 100 dm²
+  const totalSurfaceAreaCm2 = (totalSurfaceAreaM2 || 1) * 10_000; // 1 m² = 10,000 cm²
+
+  // 1. Paragraph 4.2.1: MACO by Health-Based Exposure Limit (HBEL)
+  // MACO = (HBEL_previous * MBS_next * PF) / (TDD_next * SF)
+  let macoHbelMg = 0;
+  if (nextMaterialTddMg > 0 && safetyFactorHbel > 0 && hbelMgDay > 0) {
+    macoHbelMg = Number(
+      (((hbelMgDay * mbsMg * (purgingFactor || 1)) / (nextMaterialTddMg * (safetyFactorHbel || 1)))).toFixed(2)
+    );
+  }
+
+  // Paragraph 4.2.6: Chemical production factor (5 - 10x for chemical synthesis)
+  const chemFactor = Math.max(1, chemicalProductionFactor || 1);
+  const macoHbelWithChemicalFactorMg = Number((macoHbelMg * chemFactor).toFixed(2));
+  const effectiveHbelMaco = chemFactor > 1 ? macoHbelWithChemicalFactorMg : macoHbelMg;
+
+  // 2. Paragraph 4.2.2: MACO by General Limit
+  // MACO = MAXCONC * MBS
+  // 10 ppm = 10 mg/kg * MBS_kg (or 0.001% of MBS)
+  const maco10PpmMg = Number((10 * (nextMaterialMbsKg || 0)).toFixed(2));
+  // 100 ppm = 100 mg/kg * MBS_kg (or 0.01% of MBS, very frequent in APIs per 4.2.2)
+  const maco100PpmMg = Number((100 * (nextMaterialMbsKg || 0)).toFixed(2));
+  // Custom MAXCONC ppm
+  const macoCustomPpmMg = Number(((generalLimitPpm || 10) * (nextMaterialMbsKg || 0)).toFixed(2));
+
+  // 3. Paragraph 4.2.3: MACO by 1/1000th Therapeutic Dose / Therapeutic Macromolecules & Peptides
+  // MACO = (TDD_previous * MBS_next) / (SF * TDD_next)
+  let macoDoseMg = 0;
+  if (nextMaterialTddMg > 0 && doseSafetyFactor > 0 && previousMaterialTddMg > 0) {
+    macoDoseMg = Number(
+      ((previousMaterialTddMg * mbsMg) / (doseSafetyFactor * nextMaterialTddMg)).toFixed(2)
+    );
+  }
+
+  // If therapeutic macromolecule or peptide (Section 4.2.3):
+  // "both the limit based upon 1/1000th of the therapeutic dose and the general limit of 10 ppm are calculated and the lowest value is being used"
+  const macoMacromoleculeSelectedMg = Math.min(macoDoseMg > 0 ? macoDoseMg : Infinity, maco10PpmMg);
+
+  // 4. Comparison & Governing MACO Selection (lowest value among valid criteria)
+  type GovCriteria = ApicChapter4CalculationResult['governingCriteria'];
+  const candidates: { val: number; name: GovCriteria }[] = [];
+
+  if (effectiveHbelMaco > 0) {
+    candidates.push({ val: effectiveHbelMaco, name: '4.2.1 Dati Tossicologici HBEL (ADE/PDE)' });
+  }
+  if (maco10PpmMg > 0) {
+    candidates.push({ val: maco10PpmMg, name: '4.2.2 Limite Generale (10 ppm)' });
+  }
+  if (macoDoseMg > 0) {
+    candidates.push({ val: macoDoseMg, name: '4.2.3 Criterio Dose / Macromolecole (1/1000)' });
+  }
+
+  candidates.sort((a, b) => a.val - b.val);
+  const governing = candidates[0] || {
+    val: effectiveHbelMaco || maco10PpmMg || 100,
+    name: '4.2.1 Dati Tossicologici HBEL (ADE/PDE)' as GovCriteria,
+  };
+
+  const governingMacoMg = governing.val;
+  const governingCriteria = governing.name;
+  const governingMacoUg = governingMacoMg * 1000;
+
+  // 5. Paragraph 4.2.4: Swab Limits (Equation 4.2.5-I)
+  // Target value [µg/dm²] = MACO [µg] / Total surface [dm²]
+  const swabTargetValueUgDm2 = totalSurfaceAreaDm2 > 0 ? Number((governingMacoUg / totalSurfaceAreaDm2).toFixed(3)) : 0;
+  // Target value [µg/cm²] = Target [µg/dm²] / 100 = MACO [mg] * 1000 / (Total surface [m²] * 10,000)
+  const swabTargetValueUgCm2 = Number((swabTargetValueUgDm2 / 100).toFixed(4));
+  // Swab Limit per test template: Swab Limit [µg/swab] = Target [µg/cm²] * Swab Area [cm²]
+  const swabLimitPerTemplateUg = Number((swabTargetValueUgCm2 * (swabTemplateAreaCm2 || 25)).toFixed(3));
+  // With analytical recovery correction (WF):
+  const swabLimitWithRecoveryUg = Number((swabLimitPerTemplateUg * recoveryFraction).toFixed(3));
+
+  // Equation 4.2.5-II: Multi-equipment train segmented carry over
+  // CO [µg] = Sum(Ai [dm²] * mi [µg/dm²])
+  let totalSwabCarryOverUg: number | undefined = undefined;
+  let isTotalSwabWithinMaco: boolean | undefined = undefined;
+
+  if (segments && segments.length > 0) {
+    let sumCoUg = 0;
+    for (const seg of segments) {
+      if (seg.measuredSwabResidueUgDm2 !== undefined) {
+        sumCoUg += seg.areaDm2 * seg.measuredSwabResidueUgDm2;
+      }
+    }
+    totalSwabCarryOverUg = Number(sumCoUg.toFixed(2));
+    isTotalSwabWithinMaco = totalSwabCarryOverUg <= governingMacoUg;
+  }
+
+  // 6. Paragraph 4.2.5: Rinse Limits
+  // Target value (mg/L or ppm) = MACO (mg) / Volume of rinse or boil (L)
+  const rinseTargetValueMgL = rinseVolumeLiters > 0 ? Number((governingMacoMg / rinseVolumeLiters).toFixed(4)) : 0;
+
+  // Equation 5: Measured Carry Over in Rinse
+  // CO [mg] = V * (C - Cb)
+  let measuredRinseCarryOverMg: number | undefined = undefined;
+  let isRinseWithinTarget: boolean | undefined = undefined;
+
+  if (rinseVerification) {
+    const netConc = Math.max(0, rinseVerification.sampleImpurityConcMgL - rinseVerification.blankSolventConcMgL);
+    measuredRinseCarryOverMg = Number((rinseVerification.rinseVolumeLiters * netConc).toFixed(4));
+    isRinseWithinTarget = measuredRinseCarryOverMg < governingMacoMg;
+  }
+
+  // 7. Paragraph 4.1: Visually Clean Inspection Check
+  const isVisualLimitMoreStringent = visualCleanlinessThresholdUgCm2 < swabTargetValueUgCm2;
+
+  // 8. Generate Explicit Mathematical Audit Trail Steps
+  const auditSteps: CalculationAuditStep[] = [
+    {
+      stepNumber: 1,
+      title: 'Paragrafo 4.2.1: Criterio Dati Tossicologici HBEL (ADE/PDE)',
+      formulaTemplate: 'MACO = (HBEL_previous × MBS_next × PF) / (TDD_next × SF)',
+      formulaSubstituted: `MACO = (${hbelMgDay} mg/die × ${mbsMg.toLocaleString('it-IT')} mg × ${purgingFactor}) / (${nextMaterialTddMg} mg/die × ${safetyFactorHbel})`,
+      resultString: `${macoHbelMg.toLocaleString('it-IT')} mg (${(macoHbelMg / 1000).toFixed(4)} g)${
+        chemFactor > 1 ? ` → Con Fattore Chimico ${chemFactor}x (Par. 4.2.6): ${macoHbelWithChemicalFactorMg.toLocaleString('it-IT')} mg` : ''
+      }`,
+      explanation:
+        'Principio primario EMA GMP Annex 15 e APIC. Calcola il massimo residuo trasferibile consentito nel lotto successivo in base all\'esposizione giornaliera ammessa.',
+    },
+    {
+      stepNumber: 2,
+      title: 'Paragrafo 4.2.2: Criterio Limite Generale (General Limit 10 ppm / 100 ppm)',
+      formulaTemplate: 'MACO = MAXCONC [mg/kg] × MBS [kg]',
+      formulaSubstituted: `10 ppm = 10 mg/kg × ${nextMaterialMbsKg} kg | 100 ppm = 100 mg/kg × ${nextMaterialMbsKg} kg`,
+      resultString: `10 ppm: ${maco10PpmMg.toLocaleString('it-IT')} mg | 100 ppm: ${maco100PpmMg.toLocaleString('it-IT')} mg`,
+      explanation:
+        'Limite empirico generale raccomandato dalla guida APIC (10 ppm standard precauzionale; 100 ppm frequentemente adottato per intermedi e API non potenti).',
+    },
+    {
+      stepNumber: 3,
+      title: 'Paragrafo 4.2.3: Criterio Macromolecole Terapeutiche e Peptidi (Dose 1/1000)',
+      formulaTemplate: 'MACO = (TDD_previous × MBS_next) / (SF × TDD_next)',
+      formulaSubstituted: `MACO = (${previousMaterialTddMg} mg/die × ${mbsMg.toLocaleString('it-IT')} mg) / (${doseSafetyFactor} × ${nextMaterialTddMg} mg/die)`,
+      resultString: `Dose 1/1000: ${macoDoseMg.toLocaleString('it-IT')} mg${
+        isMacromoleculeOrPeptide
+          ? ` → Minimo con 10 ppm (Par. 4.2.3): ${macoMacromoleculeSelectedMg.toLocaleString('it-IT')} mg`
+          : ''
+      }`,
+      explanation:
+        'Applicabile quando HBEL dell\'attivo intatto non è richiesto a causa della degradazione/denaturazione da calore/pH estremi (Guida EMA/CHMP/CVMP/SWP/169430/2012).',
+    },
+    {
+      stepNumber: 4,
+      title: 'Selezione del Criterio Governatore Più Restrittivo',
+      formulaTemplate: 'MACO_governante = min(MACO_HBEL, MACO_10ppm, MACO_Dose)',
+      formulaSubstituted: `min(${effectiveHbelMaco} mg, ${maco10PpmMg} mg, ${macoDoseMg} mg)`,
+      resultString: `${governingMacoMg.toLocaleString('it-IT')} mg (${governingCriteria})`,
+      explanation:
+        'Come stabilito dalla Guida APIC Sezione 4.0, viene adottato il limite più restrittivo tra i metodi applicabili per garantire la massima sicurezza del paziente.',
+    },
+    {
+      stepNumber: 5,
+      title: 'Paragrafo 4.2.4: Calcolo Limiti Swab (Equation 4.2.5-I)',
+      formulaTemplate: 'Target [µg/dm²] = MACO [µg] / Total_Surface [dm²] | Limite_Swab = Target [µg/cm²] × Area_Swab × WF',
+      formulaSubstituted: `Target = ${governingMacoUg.toLocaleString('it-IT')} µg / ${totalSurfaceAreaDm2} dm² = ${swabTargetValueUgDm2} µg/dm² (${swabTargetValueUgCm2} µg/cm²) | Swab = ${swabTargetValueUgCm2} × ${swabTemplateAreaCm2} × ${recoveryFraction}`,
+      resultString: `Target Superficiale: ${swabTargetValueUgCm2} µg/cm² | Limite Rilevabile su Tampone (${swabTemplateAreaCm2} cm²): ${swabLimitWithRecoveryUg} µg/swab`,
+      explanation:
+        `Ripartizione uniforme della contaminazione ammessa sull'intera superficie condivisa, corretta per il fattore di recupero analitico (${swabRecoveryRatePercent}%).`,
+    },
+    {
+      stepNumber: 6,
+      title: 'Paragrafo 4.2.5: Calcolo Limite Risciacquo Finale (Rinse Target Value)',
+      formulaTemplate: 'Target_Value [mg/L] = MACO [mg] / Volume_Rinse [L]',
+      formulaSubstituted: `Target_Value = ${governingMacoMg} mg / ${rinseVolumeLiters} L`,
+      resultString: `${rinseTargetValueMgL} mg/L (ppm)`,
+      explanation:
+        'Concentrazione massima ammessa nel volume di risciacquo finale, assumendo la dissoluzione uniforme del residuo residuo (Rinse Test).',
+    },
+    {
+      stepNumber: 7,
+      title: 'Paragrafo 4.1: Ispezione Visiva & Criterio "Visibly Clean"',
+      formulaTemplate: 'Verifica: Limite_Superficie [µg/cm²] vs Soglia_Visiva [4.0 µg/cm²]',
+      formulaSubstituted: `${swabTargetValueUgCm2} µg/cm² vs ${visualCleanlinessThresholdUgCm2} µg/cm²`,
+      resultString: isVisualLimitMoreStringent ? 'Ispezione Visiva Più Restrittiva' : 'Campionamento Strumentale Obbligatorio',
+      explanation:
+        swabTargetValueUgCm2 < visualCleanlinessThresholdUgCm2
+          ? 'Il limite superficiale calcolato è INFERIORE alla soglia visiva standard. L\'ispezione visiva da sola NON basta; è obbligatoria la quantificazione analitica strumentale.'
+          : 'Il limite superficiale calcolato è superiore alla soglia visiva. Il criterio "visibly clean in dry conditions" è soddisfatto come barriera preventiva primaria.',
+    },
+  ];
+
+  // 9. Warnings & Regulatory Checks
+  const warnings: string[] = [];
+  if (effectiveHbelMaco < maco10PpmMg && governingCriteria !== '4.2.1 Dati Tossicologici HBEL (ADE/PDE)') {
+    warnings.push(
+      'Nota Regolatoria EMA: Il limite basato su HBEL/PDE è più restrittivo di 10 ppm. Secondo EMA GMP Annex 15, l\'approccio tossicologico deve prevalere.'
+    );
+  }
+  if (swabTargetValueUgCm2 < 1.0) {
+    warnings.push(
+      `Limite analitico superficiale molto basso (${swabTargetValueUgCm2} µg/cm²). Il metodo cromatografico deve avere un LOQ adeguato (inferiore al 50% della specifica).`
+    );
+  }
+  if (chemFactor > 1 && !chemicalFactorJustification) {
+    warnings.push(
+      'Paragrafo 4.2.6: È stato applicato un fattore chimico di riduzione carryover senza aver inserito la giustificazione documentata firmata da un chimico competente.'
+    );
+  }
+
+  return {
+    macoHbelMg,
+    macoHbelWithChemicalFactorMg,
+    maco10PpmMg,
+    maco100PpmMg,
+    macoCustomPpmMg,
+    macoDoseMg,
+    macoMacromoleculeSelectedMg,
+    governingCriteria,
+    governingMacoMg,
+    totalSurfaceAreaDm2,
+    swabTargetValueUgDm2,
+    swabTargetValueUgCm2,
+    swabLimitPerTemplateUg,
+    swabLimitWithRecoveryUg,
+    totalSwabCarryOverUg,
+    isTotalSwabWithinMaco,
+    rinseTargetValueMgL,
+    measuredRinseCarryOverMg,
+    isRinseWithinTarget,
+    isVisualLimitMoreStringent,
+    visualCleanlinessThresholdUgCm2,
+    auditSteps,
+    warnings,
+  };
+}
+
+
+

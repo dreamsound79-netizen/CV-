@@ -42,19 +42,23 @@ export const PdeDerivationTool: React.FC<PdeDerivationToolProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center space-x-2">
-            <span className="px-2.5 py-0.5 rounded text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              Linee Guida EMA / ICH Q3D & APIC
+      {/* Header: Warm Amber / Gold Environment Styling */}
+      <div className="bg-gradient-to-r from-amber-950/40 via-slate-900 to-orange-950/30 border-2 border-amber-500/40 p-6 rounded-2xl shadow-2xl shadow-amber-950/30 flex flex-col md:flex-row md:items-center justify-between gap-4 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-amber-600/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
+        <div className="relative z-10">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="px-3 py-1 rounded-full text-xs font-black bg-amber-500 text-slate-950 shadow-md shadow-amber-500/30 uppercase tracking-wider flex items-center space-x-1.5">
+              <span className="w-2 h-2 rounded-full bg-slate-950 animate-pulse"></span>
+              <span>AMBIENTE: DERIVAZIONE TOSSICOLOGICA NOAEL/PDE &amp; FATTORI F1-F5</span>
             </span>
-            <span className="text-xs text-slate-400">Health-Based Exposure Limits (HBEL)</span>
+            <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+              Linee Guida EMA / ICH Q3D &amp; APIC
+            </span>
           </div>
-          <h1 className="text-2xl font-black text-white tracking-tight mt-1">
+          <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight mt-2">
             Strumento di Derivazione Tossicologica ADE / PDE
           </h1>
-          <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
+          <p className="text-xs sm:text-sm text-slate-300 mt-1.5 max-w-2xl leading-relaxed">
             Calcolo del Permitted Daily Exposure (PDE) o Acceptable Daily Exposure (ADE) a partire dal valore sperimentale
             NOAEL/LOAEL e dai cinque fattori di correzione biologica F1, F2, F3, F4, F5.
           </p>
